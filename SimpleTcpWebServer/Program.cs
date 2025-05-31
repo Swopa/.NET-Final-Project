@@ -87,7 +87,86 @@ public class ClientHandler
         Console.WriteLine($"Handling client: {_clientIdentifier} on NEW thread ID {Thread.CurrentThread.ManagedThreadId}");
         try
         {
-            Thread.Sleep(100);
+            using (NetworkStream stream = new NetworkStream(_clientSocket, true))
+            using (StreamReader reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true))
+            using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8, bufferSize: 8192, leaveOpen: true))
+            { 
+                string requestLine = reader.ReadLine();
+                if(string.IsNullOrEmpty(requestLine)) 
+                {
+                    Console.WriteLine($"Client {_clientIdentifier}: Empty request line.");
+                    return;
+                }
+                Console.WriteLine($"Client {_clientIdentifier} Request: {requestLine}");
+
+
+
+                string headerLine;
+                while (!string.IsNullOrEmpty(headerLine = reader.ReadLine())) 
+                {
+                    Console.WriteLine(headerLine);
+                }
+
+
+
+                string[] requestParts = requestLine.Split(' ');
+
+                if (requestParts.Length < 3) 
+                {
+                    Console.WriteLine($"Client {_clientIdentifier}: Invalid request line format.");
+                    SendMinimalError(writer, "400 Bad Request", "Bad Request"); 
+                    return;
+                }
+
+
+
+                string httpMethod = requestParts[0];     // Will be "GET"
+                string requestedUrl = requestParts[1];   // Will be "/" or "/index.html" or something else
+
+                if (httpMethod.ToUpper() == "GET")
+                {
+                    string targetFilePath = "index.html";
+
+                    if (requestedUrl == "/" || requestedUrl.ToLower() == "/index.html")
+                    {
+                        string baseDirectory = AppContext.BaseDirectory;
+                        string fullWebRoot = Path.GetFullPath(Path.Combine(baseDirectory, _webRootPath));
+                        string filePath = Path.Combine(fullWebRoot, targetFilePath);
+
+                        if (File.Exists(filePath))
+                        {
+                            byte[] fileContentBytes = File.ReadAllBytes(filePath);
+
+                            writer.WriteLine("HTTP/1.1 200 OK");
+                            writer.WriteLine("Content-Type: text/html; charset=UTF-8");
+                            writer.WriteLine($"Content-Length: {fileContentBytes.Length}");
+                            writer.WriteLine("Connection: close");
+                            writer.WriteLine();
+                            writer.Flush();
+
+                            stream.Write(fileContentBytes, 0, fileContentBytes.Length);
+                            stream.Flush();
+
+                            Console.WriteLine($"Client {_clientIdentifier}: Successfully sent {filePath}.");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Client {_clientIdentifier}: File not found at path: {filePath}");
+                            SendMinimalError(writer, "404 Not Found", $"File {targetFilePath} not found on server.");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Client {_clientIdentifier}: Requested URL '{requestedUrl}' is not '/index.html'.");
+                        SendMinimalError(writer, "404 Not Found", $"File for URL {requestedUrl} not found.");
+                    }
+                } 
+                else
+                {
+                    Console.WriteLine($"Client {_clientIdentifier}: Method '{httpMethod}' not allowed.");
+                    SendMinimalError(writer, "405 Method Not Allowed", "Method Not Allowed");
+                } 
+            }
         }
         catch (IOException ex) 
         {
@@ -112,6 +191,23 @@ public class ClientHandler
             catch (SocketException) { /* Ignore if already closed or error */ }
             catch (ObjectDisposedException) { /* Ignore if already disposed */ }
             _clientSocket.Close();
+        }
+    }
+
+    private void SendMinimalError(StreamWriter writer, string statusCodeAndReason, string bodyMessage)
+    {
+        try
+        {
+            writer.WriteLine($"HTTP/1.1 {statusCodeAndReason}");
+            writer.WriteLine("Content-Type: text/plain; charset=UTF-8");
+            writer.WriteLine("Connection: close");
+            writer.WriteLine(); // End of headers
+            writer.WriteLine(bodyMessage);
+            writer.Flush(); // Send response
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending minimal error response to {_clientIdentifier}: {ex.Message}");
         }
     }
 }

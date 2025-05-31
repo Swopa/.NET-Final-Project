@@ -9,7 +9,7 @@
 	
 	      
     <ItemGroup>
-      <Content Include="webroot\**">
+      <Content Include="webroot\**\*.*">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
